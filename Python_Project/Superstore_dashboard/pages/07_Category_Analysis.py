@@ -1,0 +1,56 @@
+import streamlit as st
+import plotly.express as px
+from utils.data_loader import load_data, apply_custom_theme
+from utils.auth import require_login, render_logout
+from utils.charts import PALETTE, style_fig, insight_box
+
+st.set_page_config(page_title="Category Breakdown", layout="wide")
+apply_custom_theme()
+require_login()
+
+st.title("Category Breakdown")
+st.caption("Macro product category performance.")
+
+df = load_data()
+
+st.sidebar.header("Filter Options")
+render_logout()
+reg = st.sidebar.multiselect("Select Region", df['Region'].unique(), default=df['Region'].unique())
+cat = st.sidebar.multiselect("Select Category", df['Category'].unique(), default=df['Category'].unique())
+
+filtered = df[(df['Region'].isin(reg)) & (df['Category'].isin(cat))]
+
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Selected Sales", f"${filtered['Sales'].sum():,.2f}")
+k2.metric("Selected Profit", f"${filtered['Profit'].sum():,.2f}")
+k3.metric("Volume Sold", f"{filtered['Quantity'].sum():,}")
+k4.metric("Avg Discount", f"{filtered['Discount'].mean()*100:.1f}%")
+
+st.markdown("---")
+
+cat_df = filtered.groupby('Category').agg(Sales=('Sales', 'sum'), Profit=('Profit', 'sum')).reset_index()
+
+col_a, col_b = st.columns(2)
+with col_a:
+    fig1 = px.pie(cat_df, names='Category', values='Sales', hole=0.55, title="Revenue Share by Category",
+                   color_discrete_sequence=PALETTE)
+    st.plotly_chart(style_fig(fig1), use_container_width=True)
+
+with col_b:
+    fig2 = px.bar(cat_df, x='Category', y=['Sales', 'Profit'], barmode='group',
+                   title="Sales vs Profit by Category", color_discrete_sequence=[PALETTE[2], PALETTE[0]])
+    st.plotly_chart(style_fig(fig2), use_container_width=True)
+
+if not cat_df.empty and filtered['Sales'].sum() > 0:
+    top_cat = cat_df.sort_values('Sales', ascending=False).iloc[0]
+    top_share = top_cat['Sales'] / filtered['Sales'].sum() * 100
+    least_profitable = cat_df.sort_values('Profit', ascending=True).iloc[0]
+    points = [
+        f"<b>{top_cat['Category']}</b> drives <b>{top_share:.1f}%</b> of total revenue in the current filter.",
+        f"<b>{least_profitable['Category']}</b> contributes the least profit (${least_profitable['Profit']:,.0f}) relative to its sales — check the Sub-Category and Discount pages for the specific culprit.",
+        "Compare this pie chart over time (via the sidebar Year filter on the home page) to see whether the category mix is shifting.",
+    ]
+    insight_box("How revenue splits across product categories", points)
+
+st.subheader("Detailed Records")
+st.dataframe(filtered[['Order ID', 'Order Date', 'Region', 'Category', 'Sub-Category', 'Sales', 'Profit']].head(50), use_container_width=True)
